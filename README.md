@@ -10,9 +10,8 @@
 | 3 | Krudant Randai |
 | 4 | Sahil Gawande |
 
-##  IT Companies In India
-------------------------------------------
+## USE CASE - IT Companies In India
 
-## A RAG based approach to Compare and QnA on the Financial Details of the Comapny
+## ReportIQ — AI-Powered Annual Report Intelligence
 
 
