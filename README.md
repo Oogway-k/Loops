@@ -7,9 +7,6 @@ Hackathon project repository
 Sahil commint
 anna write something
 hello
-<<<<<<< HEAD
 now finally anna is here
 hello
-=======
 have a good day.
->>>>>>> c7eb7b4 (Add greeting in README.md)
