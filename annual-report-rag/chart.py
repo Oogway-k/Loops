@@ -1,12 +1,15 @@
 """R1: comparison chart from data/metrics.csv, with a strict check of every value against its PDF page.
 Every bar carries the PDF page its value came from, and any mismatch in units, fiscal years or
-definitions is stated next to the chart. A value gets a bar only if it passes the check.
+definitions is stated next to the chart.
 
     python chart.py             fill empty rows of metrics.csv with the verified FY2025-26 values (only rows
                                 with no value, only when the cited PDF is in data/reports), check every value
                                 against its PDF page, then save outputs/r1_<metric>.png
     python chart.py --check     fill and check metrics.csv only; draw no charts
     python chart.py --no-fill   check and chart only what metrics.csv already holds
+
+Bars: solid = passed the page check; solid + "checked by hand" = a person confirmed it (human_check = yes);
+faded and hatched + "page check failed" = not verified (the reason is listed next to the chart).
 
 The check re-reads the cited PDF page and rebuilds table rows from word positions (also on rotated
 landscape pages). Its four parts use the same names as the answer verifier:
@@ -50,6 +53,16 @@ FIELDS = config.METRIC_FIELDS
 COMPANY_COLORS = {"HCLTech": "#1F5A96", "Infosys": "#2A9D8F", "TCS": "#6A4C93"}
 YEAR_COLORS = ["#1F5A96", "#2A9D8F", "#6A4C93", "#E9A23B", "#8D99AE"]
 _INR_UNITS = [("crore", 1.0), ("cr", 1.0), ("lakh", 0.01), ("million", 0.1), ("mn", 0.1), ("billion", 100.0), ("bn", 100.0)]
+
+
+def _pymupdf():
+    """PyMuPDF under its new name (pymupdf, >= 1.24.3) or its old one (fitz)."""
+    try:
+        import pymupdf
+    except ImportError:
+        import fitz as pymupdf
+    return pymupdf
+
 
 # ---------------------------------------------------------------- verified values (FY2025-26)
 # Read from each company's own annual report and checked against the page. PDF page = page index in a
@@ -129,6 +142,15 @@ def indian(n: float) -> str:
     return ("-" if n < 0 else "") + ",".join(groups + [tail]) + (f".{frac}" if frac else "")
 
 
+def bar_status(row) -> str:
+    """'pass' (page check passed), 'human' (failed or unchecked, but a person confirmed it) or 'fail'."""
+    if str(row["auto_check"]).strip() == "pass":
+        return "pass"
+    if str(row["human_check"]).strip().lower() == "yes":
+        return "human"
+    return "fail"
+
+
 def chart_data(df: pd.DataFrame, metric: str) -> tuple[pd.DataFrame, list[str]]:
     d = df[df["metric"] == metric].copy()
     if d.empty:
@@ -152,10 +174,13 @@ def chart_data(df: pd.DataFrame, metric: str) -> tuple[pd.DataFrame, list[str]]:
     notes = [f"{r.company}: {r.note}" for r in d.itertuples() if r.note]
     if notes:
         warnings.append("Definitions: " + "; ".join(notes) + ".")
-    failed = sorted(set(d.loc[d["auto_check"] != "pass", "company"]))
+    failed = [(r.company, str(r.auto_check or "not checked")[:140]) for r in d.itertuples()
+              if bar_status(r._asdict()) == "fail"]
     if failed:
-        warnings.append("Page check not passed for " + ", ".join(failed) + ", so no bar is drawn. Fix the row in "
-                        "data/metrics.csv and run python chart.py --check.")
+        warnings.append("Page check not passed (bar drawn faded and hatched): "
+                        + "; ".join(f"{c}: {why}" for c, why in failed)
+                        + ". Fix the row in data/metrics.csv and run python chart.py, or open the page and "
+                          "write 'yes' in human_check.")
     unchecked = sorted(set(d.loc[d["human_check"].str.lower() != "yes", "company"]))
     if unchecked:
         warnings.append("Not yet confirmed by a person against the PDF: " + ", ".join(unchecked) + ".")
@@ -177,23 +202,25 @@ def make_figure(d: pd.DataFrame, metric: str):
             row = sub.loc[company]
             x = i - 0.35 + width * (j + 0.5)
             color = COMPANY_COLORS.get(company, "#8D99AE") if len(years) == 1 else YEAR_COLORS[j % len(YEAR_COLORS)]
-            if row["auto_check"] != "pass":  # unverified values get no bar, only a marker
-                ax.annotate("not drawn:\npage check failed", (x, 0), xytext=(0, 3), textcoords="offset points",
-                            ha="center", va="bottom", fontsize=8, color="#B23B3B")
-                continue
+            status = bar_status(row)
+            solid = status != "fail"
             ax.bar(x, row["plot_value"], width * 0.9, color=color, edgecolor=color,
+                   alpha=1.0 if solid else 0.35, hatch=None if solid else "//",
                    label=year if len(years) > 1 and i == 0 else None)
             shown = f"{row['plot_value']:g}%" if row["plot_unit"] == "%" else indian(row["plot_value"])
-            ax.annotate(f"{shown}\nPDF p. {row['pdf_page']}", (x, row["plot_value"]), xytext=(0, 3),
-                        textcoords="offset points", ha="center", va="bottom", fontsize=8.5)
+            tag = {"pass": "", "human": "\n(checked by hand)", "fail": "\n(page check failed)"}[status]
+            ax.annotate(f"{shown}\nPDF p. {row['pdf_page']}{tag}", (x, row["plot_value"]), xytext=(0, 3),
+                        textcoords="offset points", ha="center", va="bottom", fontsize=8.5,
+                        color="#B23B3B" if status == "fail" else "#222222")
     ax.set_xticks(range(len(companies)))
     ax.set_xticklabels(companies, fontsize=10)
     ax.set_ylabel(unit)
     if unit != "%":
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: indian(v)))
+    ax.set_ylim(bottom=0)
     ax.set_title(f"{label}, {years[0]}" if len(years) == 1 else f"{label} by fiscal year", loc="left", fontsize=12)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.margins(y=0.18)
+    ax.margins(y=0.22)
     if len(years) > 1:
         ax.legend(frameon=False, fontsize=8)
     notes = {r.company: r.note for r in d.itertuples() if r.note}
@@ -206,7 +233,6 @@ def make_figure(d: pd.DataFrame, metric: str):
     fig.text(0.01, 0.01, foot, fontsize=7.5, color="#555555", va="bottom")
     fig.tight_layout(rect=(0, 0.02 + 0.035 * (foot.count("\n") + 1), 1, 1))
     return fig
-
 
 
 # ---------------------------------------------------------------- strict check of chart values
@@ -255,10 +281,10 @@ def norm(text: str) -> str:
 
 
 def compact(text: str) -> str:
-    """For quote matching: no whitespace or quote marks, line-break hyphens joined (as ingest.py)."""
+    """For quote matching: no whitespace, quote marks or table pipes; line-break hyphens joined."""
     text = unicodedata.normalize("NFKC", str(text or "")).translate(_CHARS).lower()
     text = re.sub(r"([a-z])-\s*\n\s*([a-z])", r"\1\2", text)
-    return re.sub(r"[\s\"'`]+", "", text)
+    return re.sub(r"[\s\"'`|]+", "", text)
 
 
 def to_number(token: str) -> float | None:
@@ -367,7 +393,7 @@ def page_rows(page, tol: float = 3) -> list[str]:
     """Table rows rebuilt from word positions, so a row's label and its figures share one line."""
     words = page.get_text("words")
     if page.rotation:  # landscape table on a rotated page: map words to the displayed orientation
-        import pymupdf
+        pymupdf = _pymupdf()
         m = page.rotation_matrix
         words = [(*tuple(pymupdf.Rect(w[:4]) * m), w[4]) for w in words]
     words = sorted(words, key=lambda w: (w[3], w[0]))
@@ -403,8 +429,7 @@ class Reports:
 
     def doc(self, file: str):
         if file not in self._docs:
-            import pymupdf
-            self._docs[file] = pymupdf.open(self.dir / file)
+            self._docs[file] = _pymupdf().open(self.dir / file)
         return self._docs[file]
 
     def page_count(self, file: str) -> int:
@@ -581,7 +606,7 @@ def check_column(kind, value, shown, fy, report_fy, rows, i, nums, fail, warn, l
         return
     if kind == "count":  # BRSR employee tables: Total (A) first, then male and female columns
         if nums and not same(value, nums[0]):
-            if any("total (a)" in norm(r) for r in rows[max(0, i - 8):i]):  # BRSR: "Total (A)" is the first column
+            if any("total (a)" in norm(r) for r in rows[max(0, i - 8):i]):
                 fail(f"support: {shown} is not the Total column; the table puts the total first: {indian(nums[0])}")
             else:
                 warn(f"support: this row starts with {indian(nums[0])}; BRSR tables give the total first")
@@ -779,7 +804,7 @@ def write_report(path: Path, rows, results, notes, reports: Reports) -> None:
     failed = sum(bool(res["errors"]) for _, _, res in checked)
     lines = ["# Chart value validation (python chart.py --check)", "",
              f"{len(checked)} filled rows: {len(checked) - failed} pass, {failed} fail. "
-             "Failed rows are marked in auto_check; chart.py flags them.", "",
+             "Failed rows are marked in auto_check; chart.py draws them faded and hatched.", "",
              "Checks: 1 source, 2 page, 3 support (figure on the metric's row or sentence, in the right "
              "year column; unit and consolidated scope match the page), 4 coverage.", "",
              "| CSV line | Company | Metric | FY | Value | Unit | Report | PDF page | Result | Details | Human check |",
@@ -859,6 +884,20 @@ def check_metrics(path: Path = config.METRICS_CSV, reports_dir: Path = config.RE
         raise SystemExit(f"{path} not found. Run python extract_metrics.py, or put the reports in "
                          f"data/reports and run python chart.py.")
     header, rows = _read_csv(path)
+
+    try:
+        _pymupdf()
+    except ImportError:
+        print("! PyMuPDF is not installed in this Python, so the PDF pages can't be checked.\n"
+              f"  Install it with:  \"{sys.executable}\" -m pip install pymupdf\n"
+              "  Rows are marked 'unchecked'; the charts are still drawn (faded and hatched).")
+        for row in rows:
+            if has_value(row):
+                row["auto_check"] = "unchecked: PyMuPDF not installed"
+        if write:
+            _write_csv(path, header, rows)
+        return rows, [], []
+
     reports = Reports(reports_dir)
     results, notes = validate(rows, reports)
     for row, res in zip(rows, results):

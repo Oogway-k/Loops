@@ -38,6 +38,49 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
+# Verified FY2025-26 values (read from each report and checked by hand). Used when no LLM is loaded.
+# company, metric, value as printed, unit, file in data/reports, PDF page, printed page, quote, note
+_PL = "Consolidated statement of profit and loss"
+VERIFIED = [
+    ("HCLTech", "revenue", "130,144", "₹ crore", "HCLTech.pdf", 375, "372", "Revenue from operations 3.19 130,144 117,055", _PL),
+    ("HCLTech", "net_profit", "16,652", "₹ crore", "HCLTech.pdf", 375, "372", "Profit for the year 16,652 17,399", "Profit for the year, consolidated"),
+    ("HCLTech", "headcount", "237,098", "employees", "HCLTech.pdf", 216, "213", "Total employees (E+F) 237,098 166,670 70.29% 69,897 29.48% 531 0.22%", "BRSR: permanent + other employees"),
+    ("HCLTech", "attrition", "12.51", "%", "HCLTech.pdf", 217, "214", "Permanent 12.61% 12.28% 8.17% 12.51% 13.06% 12.81% 5.66% 12.99%", "Voluntary attrition, LTM, IT services (BRSR)"),
+    ("Infosys", "revenue", "1,78,650", "₹ crore", "infosys-ar-26.pdf", 287, "318", "Revenue from operations 2.18 1,78,650 1,62,990", _PL),
+    ("Infosys", "net_profit", "29,474", "₹ crore", "infosys-ar-26.pdf", 287, "318", "Profit for the year 29,474 26,750", "Profit for the year, consolidated"),
+    ("Infosys", "headcount", "3,52,095", "employees", "infosys-ar-26.pdf", 143, "174", "Total employees (D + E) 3,52,095 2,17,818 61.9 1,34,277 38.1", "BRSR: permanent + other employees"),
+    ("Infosys", "attrition", "12.6", "%", "infosys-ar-26.pdf", 144, "175", "Permanent employees 13.2 11.6 12.6 14.5 13.6 14.1", "Voluntary attrition, IT services excl. BPM (BRSR)"),
+    ("TCS", "revenue", "2,67,021", "₹ crore", "TCS_Annual_Report_2025-26.pdf", 167, "197", "Revenue from operations 12 2,67,021 2,55,324", _PL),
+    ("TCS", "net_profit", "49,454", "₹ crore", "TCS_Annual_Report_2025-26.pdf", 167, "197", "PROFIT FOR THE YEAR 49,454 48,797", "Profit for the year, consolidated"),
+    ("TCS", "headcount", "6,17,437", "employees", "TCS_Annual_Report_2025-26.pdf", 108, "138", "Total employees (D + E) 6,17,437 3,99,559 64.7 2,17,878 35.3", "BRSR: permanent + other employees"),
+    ("TCS", "attrition", "13.7", "%", "TCS_Annual_Report_2025-26.pdf", 108, "138", "Permanent Employees 13.8 13.4 13.7 13.2 13.6 13.3", "Voluntary attrition, LTM, IT services (BRSR)"),
+]
+
+
+def seed_verified() -> None:
+    """No-LLM path: write the verified values into metrics.csv, keep human-checked rows, check every page."""
+    try:
+        pages = load_pages()
+    except FileNotFoundError:
+        pages = {}
+        print("  ! no index yet (run python ingest.py); rows are written but the page check will fail")
+    existing = {(r["company"], r["metric"]): r for r in read_rows()}
+    rows = []
+    for company, metric, value_text, unit, file, page, printed, quote, note in VERIFIED:
+        old = existing.pop((company, metric), None)
+        if old and old["human_check"].lower() == "yes":
+            rows.append(old)
+            continue
+        row = {f: "" for f in FIELDS} | {
+            "company": company, "metric": metric, "value": parse_value(value_text), "value_text": value_text,
+            "unit": unit, "fiscal_year": "FY2025-26", "report": f"{company} Annual Report 2025-26", "file": file,
+            "pdf_page": str(page), "page_label": printed, "quote": quote, "note": note}
+        row["auto_check"] = check_row(row, pages)
+        rows.append(row)
+    rows += list(existing.values())
+    write_rows(rows)
+    summary(rows)
+
 
 def parse_value(text: str) -> str:
     match = re.search(r"\d[\d,]*(?:\.\d+)?", text or "")
@@ -105,8 +148,9 @@ def verify() -> None:
 def extract() -> None:
     llm = get_llm()
     if llm is None:
-        raise SystemExit("No LLM configured. Fill data/metrics.csv by hand (see README), then run: "
-                         "python extract_metrics.py --verify")
+        print("No LLM loaded: using the verified FY2025-26 values.")
+        seed_verified()
+        return
     retriever = Retriever()
     existing = {(r["company"], r["metric"]): r for r in read_rows()}
     rows = []
