@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+data/index/
+outputs/
+# Annual-report PDFs are 10-40 MB each. Commit them only if your repo host allows files that size:
+# data/reports/*.pdf

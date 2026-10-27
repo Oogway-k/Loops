@@ -1,0 +1,10 @@
+[
+  {"question": "What was TCS's consolidated revenue from operations for the latest fiscal year?", "expect": "answer", "demo": true},
+  {"question": "How many employees did Infosys have at the end of the fiscal year?", "expect": "answer", "demo": true},
+  {"question": "What attrition rate did HCLTech report?", "expect": "answer", "demo": true},
+  {"question": "Compare the attrition rates reported by HCLTech, Infosys and TCS.", "expect": "answer"},
+  {"question": "What does Infosys say about its investments in AI?", "expect": "answer"},
+  {"question": "What will TCS's share price be next year?", "expect": "not_found", "demo": true},
+  {"question": "What did HCLTech spend on its office cafeteria in Antarctica?", "expect": "not_found", "demo": true},
+  {"question": "What was Wipro's operating margin last year?", "expect": "not_found"}
+]

@@ -1,0 +1,15 @@
+# # Core (light, installs in a minute)
+# pymupdf>=1.24
+# numpy>=1.24
+# pandas>=2.0
+# scipy>=1.10
+# scikit-learn>=1.3
+# rank-bm25>=0.2.2
+# rapidfuzz>=3.0
+# matplotlib>=3.7
+# streamlit>=1.35
+
+# # Dense embeddings + cross-encoder reranker. Pulls PyTorch (large download); for a CPU-only wheel run
+# #   pip install torch --index-url https://download.pytorch.org/whl/cpu   first.
+# # Without it the app still runs: retrieval falls back to TF-IDF + BM25 and the reranker to keyword overlap.
+# sentence-transformers>=3.0
